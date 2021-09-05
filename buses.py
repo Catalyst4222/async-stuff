@@ -1,12 +1,13 @@
-from asyncio import Future, wait, get_running_loop, AbstractEventLoop
-from typing import Any, Union, Optional, List, Dict
+from asyncio import Future, wait, get_running_loop, AbstractEventLoop, Event
+from typing import Any, Optional, Dict
 
 class PartnerBus:  # Version of EventBus that swaps 2 results
     """.warn : Currently completely untested"""
-    def __init__(self):
-        self.futures: Dict[int, tuple[Future, Any]] = {}
+    def __init__(self, *, loop: Optional[AbstractEventLoop] = None):
+        self.futures: Dict[StopIteration, tuple[Future, Any]] = {}
+        self._loop = loop or get_running_loop()
 
-    def get_future(self, event: int, value: Any) -> Future:
+    def get_future(self, event: str, value: Any) -> Future:
         if self.futures.get(event):
             future: Future = self.futures[event][0]
             future.set_result(value)  # Set partner's future to given value
@@ -19,7 +20,7 @@ class PartnerBus:  # Version of EventBus that swaps 2 results
             self.futures[event] = (Future(), value)
             return self.futures[event][0]
 
-    async def wait_for_two(self, event: int, value: str, timeout: Optional[float] = None) -> Any:
+    async def wait_for_two(self, event: str, value: Any, timeout: Optional[float] = None) -> Any:
         """Takes an event, value, and timeout
         If it's the first of two calls, it will yield until the second call is made
         The value passed will be the return value of the other call, and vice versa
@@ -37,14 +38,10 @@ class PartnerBus:  # Version of EventBus that swaps 2 results
 
 
 
-class EventBus:  # The main thing I want to add to
+class EventBus:  # Fix soonish
     def __init__(self, *, loop: Optional[AbstractEventLoop] = None):
         self.events: Dict[str, dict] = {}
-
-        if loop is None:
-            self._loop: AbstractEventLoop = get_running_loop()
-        else:
-            self._loop: AbstractEventLoop = loop
+        self._loop = loop or get_running_loop()
 
     def create_event(self, event: str) -> None:
         self.events[event] = {'futures': [], 'open': False}
@@ -66,3 +63,21 @@ class EventBus:  # The main thing I want to add to
             fut.set_result(None)
 
         self.events[event]['open'] = leave_open
+
+
+# TODO bus for one shot thing
+
+class EventManager:
+    def __init__(self, *, loop: Optional[AbstractEventLoop] = None):
+        self._loop = loop or get_running_loop()
+        self.events: dict[str, Event] = {}
+
+    async def wait_for_event(self, event: str) -> None:
+        await self.events[event].wait()
+
+    def set_event(self, event: str) -> None:
+        self.events[event].set()
+
+    def new_event(self, event: str) -> None:
+        self.events[event] = Event(loop=self._loop)
+
